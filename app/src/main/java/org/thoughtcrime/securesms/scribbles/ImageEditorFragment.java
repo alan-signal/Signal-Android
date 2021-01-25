@@ -14,6 +14,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -31,6 +32,7 @@ import org.thoughtcrime.securesms.imageeditor.model.EditorElement;
 import org.thoughtcrime.securesms.imageeditor.model.EditorModel;
 import org.thoughtcrime.securesms.imageeditor.renderers.FaceBlurRenderer;
 import org.thoughtcrime.securesms.imageeditor.renderers.MultiLineTextRenderer;
+import org.thoughtcrime.securesms.imageeditor.renderers.RectangleRenderer;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
 import org.thoughtcrime.securesms.mediasend.MediaSendPageFragment;
 import org.thoughtcrime.securesms.mms.MediaConstraints;
@@ -50,6 +52,7 @@ import org.whispersystems.libsignal.util.Pair;
 import java.io.ByteArrayOutputStream;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 import static android.app.Activity.RESULT_OK;
 
@@ -375,7 +378,7 @@ public final class ImageEditorFragment extends Fragment implements ImageEditorHu
       if (mainImage.getRenderer() != null) {
         Bitmap bitmap = ((UriGlideRenderer) mainImage.getRenderer()).getBitmap();
         if (bitmap != null) {
-          FaceDetector detector = new FirebaseFaceDetector();
+          FaceDetector detector = new DuelFaceDetector(new FirebaseFaceDetector(), new AndroidFaceDetector());
 
           Point size = model.getOutputSizeMaxWidth(1000);
           Bitmap render = model.render(ApplicationDependencies.getApplication(), size);
@@ -486,7 +489,7 @@ public final class ImageEditorFragment extends Fragment implements ImageEditorHu
   }
 
   private void renderFaceBlurs(@NonNull FaceDetectionResult result) {
-    List<RectF> faces = result.rects;
+    List<FaceDetector.Face> faces = result.rects;
 
     if (faces.isEmpty()) {
       cachedFaceDetection = null;
@@ -497,12 +500,12 @@ public final class ImageEditorFragment extends Fragment implements ImageEditorHu
 
     Matrix faceMatrix = new Matrix();
 
-    for (RectF face : faces) {
-      FaceBlurRenderer faceBlurRenderer = new FaceBlurRenderer();
+    for (FaceDetector.Face face : faces) {
+      Renderer         faceBlurRenderer = new FaceBlurRenderer();
       EditorElement    element          = new EditorElement(faceBlurRenderer, EditorModel.Z_MASK);
       Matrix           localMatrix      = element.getLocalMatrix();
 
-      faceMatrix.setRectToRect(Bounds.FULL_BOUNDS, face, Matrix.ScaleToFit.FILL);
+      faceMatrix.setRectToRect(Bounds.FULL_BOUNDS, face.getBounds(), Matrix.ScaleToFit.FILL);
 
       localMatrix.set(result.position);
       localMatrix.preConcat(faceMatrix);
@@ -511,12 +514,43 @@ public final class ImageEditorFragment extends Fragment implements ImageEditorHu
                         .setSelectable(false)
                         .persist();
 
+      Renderer      debugRectangle = new RectangleRenderer(debugColor(face.getDetectorClass()));
+      EditorElement debugElement   = new EditorElement(debugRectangle);
+
+      debugElement.getFlags().setEditable(false)
+                             .setSelectable(false)
+                             .persist();
+
+      element.addElement(debugElement);
+
+      if (face.getConfidence() > 0) {
+        Renderer      confidenceDebugRectangle = new MultiLineTextRenderer(String.format(Locale.getDefault(), "%d", Math.round(100 * face.getConfidence())), debugColor(face.getDetectorClass()));
+        EditorElement confidenceDebugElement   = new EditorElement(confidenceDebugRectangle);
+
+        confidenceDebugElement.getLocalMatrix()
+                              .setScale(3, 3);
+
+        confidenceDebugElement.getFlags().setEditable(false)
+                              .setSelectable(false)
+                              .persist();
+
+        element.addElement(confidenceDebugElement);
+      }
+
       imageEditorView.getModel().addElementWithoutPushUndo(element);
     }
 
     imageEditorView.invalidate();
 
     cachedFaceDetection = new Pair<>(getUri(), result);
+  }
+
+  private static @ColorInt int debugColor(Class<? extends FaceDetector> detectorClass) {
+    if (detectorClass.equals(AndroidFaceDetector.class)) {
+      return 0xff00ff00;
+    } else {
+      return 0xffff0000;
+    }
   }
 
   private final ImageEditorView.TapListener selectionListener = new ImageEditorView.TapListener() {
@@ -574,10 +608,10 @@ public final class ImageEditorFragment extends Fragment implements ImageEditorHu
   }
 
   private static class FaceDetectionResult {
-    private final List<RectF> rects;
-    private final Matrix      position;
+    private final List<FaceDetector.Face> rects;
+    private final Matrix                  position;
 
-    private FaceDetectionResult(@NonNull List<RectF> rects, @NonNull Point imageSize, @NonNull Matrix position) {
+    private FaceDetectionResult(@NonNull List<FaceDetector.Face> rects, @NonNull Point imageSize, @NonNull Matrix position) {
       this.rects    = rects;
       this.position = new Matrix(position);
 

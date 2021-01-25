@@ -4,6 +4,8 @@ import android.graphics.Bitmap;
 import android.graphics.RectF;
 import android.os.Build;
 
+import androidx.annotation.NonNull;
+
 import com.annimon.stream.Stream;
 import com.google.firebase.ml.vision.FirebaseVision;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
@@ -19,14 +21,14 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-class FirebaseFaceDetector implements FaceDetector {
+final class FirebaseFaceDetector implements FaceDetector {
 
   private static final String TAG = Log.tag(FirebaseFaceDetector.class);
 
   private static final long MAX_SIZE = 1000 * 1000;
 
   @Override
-  public List<RectF> detect(Bitmap source) {
+  public List<FaceDetector.Face> detect(@NonNull Bitmap source) {
     long startTime = System.currentTimeMillis();
 
     int performanceMode = getPerformanceMode(source);
@@ -41,7 +43,7 @@ class FirebaseFaceDetector implements FaceDetector {
                                                                                      .build();
 
     FirebaseVisionImage image  = FirebaseVisionImage.fromBitmap(source);
-    List<RectF>         output = new ArrayList<>();
+    List<Face>          output = new ArrayList<>();
 
     try (FirebaseVisionFaceDetector detector = FirebaseVision.getInstance().getVisionFaceDetector(options)) {
       CountDownLatch latch = new CountDownLatch(1);
@@ -51,6 +53,7 @@ class FirebaseFaceDetector implements FaceDetector {
                 output.addAll(Stream.of(firebaseVisionFaces)
                                     .map(FirebaseVisionFace::getBoundingBox)
                                     .map(r -> new RectF(r.left, r.top, r.right, r.bottom))
+                                    .map(FirebaseFace::new)
                                     .toList());
                 latch.countDown();
               })
@@ -75,5 +78,28 @@ class FirebaseFaceDetector implements FaceDetector {
 
     return source.getWidth() * source.getHeight() < MAX_SIZE ? FirebaseVisionFaceDetectorOptions.ACCURATE
                                                              : FirebaseVisionFaceDetectorOptions.FAST;
+  }
+
+  private static class FirebaseFace implements Face {
+    private final RectF bounds;
+
+    public FirebaseFace(@NonNull RectF bounds) {
+      this.bounds = bounds;
+    }
+
+    @Override
+    public RectF getBounds() {
+      return bounds;
+    }
+
+    @Override
+    public Class<? extends FaceDetector> getDetectorClass() {
+      return FirebaseFaceDetector.class;
+    }
+
+    @Override
+    public float getConfidence() {
+      return -1;
+    }
   }
 }

@@ -15,7 +15,7 @@ public final class FaceBlurRenderer implements Renderer {
 
   @Override
   public void render(@NonNull RendererContext rendererContext) {
-    rendererContext.canvas.drawRect(Bounds.FULL_BOUNDS, rendererContext.getMaskPaint());
+    // rendererContext.canvas.drawRect(Bounds.FULL_BOUNDS, rendererContext.getMaskPaint());
   }
 
   @Override
