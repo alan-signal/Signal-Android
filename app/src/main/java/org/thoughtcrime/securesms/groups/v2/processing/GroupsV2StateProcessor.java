@@ -42,6 +42,7 @@ import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.sms.IncomingGroupUpdateMessage;
 import org.thoughtcrime.securesms.sms.IncomingTextMessage;
+import org.thoughtcrime.securesms.util.Hex;
 import org.whispersystems.libsignal.util.guava.Optional;
 import org.whispersystems.signalservice.api.groupsv2.DecryptedGroupHistoryEntry;
 import org.whispersystems.signalservice.api.groupsv2.DecryptedGroupUtil;
@@ -222,6 +223,7 @@ public final class GroupsV2StateProcessor {
       DecryptedGroup          newLocalState           = advanceGroupStateResult.getNewGlobalGroupState().getLocalState();
 
       if (newLocalState == null || newLocalState == inputGroupState.getLocalState()) {
+        Log.w(TAG, "GroupState.GROUP_CONSISTENT_OR_AHEAD");
         return new GroupUpdateResult(GroupState.GROUP_CONSISTENT_OR_AHEAD, null);
       }
 
@@ -436,6 +438,10 @@ public final class GroupsV2StateProcessor {
       }
     }
 
+    private @NonNull String getGroupIdString() {
+      return "GroupId:" + Hex.toStringCondensed(groupSecretParams.getPublicParams().getGroupIdentifier().serialize());
+    }
+
     private @NonNull GlobalGroupState queryServer(@Nullable DecryptedGroup localState, boolean latestOnly)
         throws IOException, GroupNotAMemberException
     {
@@ -445,6 +451,7 @@ public final class GroupsV2StateProcessor {
 
       try {
         latestServerGroup = groupsV2Api.getGroup(groupSecretParams, groupsV2Authorization.getAuthorizationForToday(selfUuid, groupSecretParams));
+        Log.w(TAG, String.format(Locale.US, "Server group revision for %s is %d", getGroupIdString(), latestServerGroup.getRevision()));
       } catch (NotInGroupException | GroupNotFoundException e) {
         throw new GroupNotAMemberException(e);
       } catch (VerificationFailedException | InvalidGroupStateException e) {

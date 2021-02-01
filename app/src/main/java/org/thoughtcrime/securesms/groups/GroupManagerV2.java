@@ -25,6 +25,7 @@ import org.signal.storageservice.protos.groups.local.DecryptedRequestingMember;
 import org.signal.zkgroup.InvalidInputException;
 import org.signal.zkgroup.VerificationFailedException;
 import org.signal.zkgroup.groups.ClientZkGroupCipher;
+import org.signal.zkgroup.groups.GroupIdentifier;
 import org.signal.zkgroup.groups.GroupMasterKey;
 import org.signal.zkgroup.groups.GroupSecretParams;
 import org.signal.zkgroup.groups.UuidCiphertext;
@@ -49,6 +50,7 @@ import org.thoughtcrime.securesms.profiles.AvatarHelper;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.sms.MessageSender;
+import org.thoughtcrime.securesms.util.Hex;
 import org.whispersystems.libsignal.util.guava.Optional;
 import org.whispersystems.signalservice.api.groupsv2.DecryptedGroupUtil;
 import org.whispersystems.signalservice.api.groupsv2.GroupCandidate;
@@ -75,6 +77,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -578,7 +581,16 @@ final class GroupManagerV2 {
       GroupsV2StateProcessor.GroupUpdateResult groupUpdateResult = groupsV2StateProcessor.forGroup(groupMasterKey)
                                                                                          .updateLocalGroupToRevision(GroupsV2StateProcessor.LATEST, System.currentTimeMillis(), null);
 
-      if (groupUpdateResult.getGroupState() != GroupsV2StateProcessor.GroupState.GROUP_UPDATED || groupUpdateResult.getLatestServer() == null) {
+      if (groupUpdateResult.getLatestServer() == null) {
+        int localRevision  = groupDatabase.requireGroup(groupId).requireV2GroupProperties().getGroupRevision();
+        Log.w(TAG, String.format(Locale.US, "Latest server state null. %s, local revision: %d", getGroupIdString(), localRevision));
+        throw new GroupChangeFailedException();
+      }
+
+      if (groupUpdateResult.getGroupState() != GroupsV2StateProcessor.GroupState.GROUP_UPDATED) {
+        int serverRevision = groupUpdateResult.getLatestServer().getRevision();
+        int localRevision  = groupDatabase.requireGroup(groupId).requireV2GroupProperties().getGroupRevision();
+        Log.w(TAG, String.format(Locale.US, "%s Revisions Server: %d, Local: %d", getGroupIdString(), serverRevision, localRevision));
         throw new GroupChangeFailedException();
       }
 
@@ -590,8 +602,14 @@ final class GroupManagerV2 {
                                                groupOperations.decryptChange(changeActions, selfUuid),
                                                changeActions);
       } catch (VerificationFailedException | InvalidGroupStateException ex) {
+        int localRevision  = groupDatabase.requireGroup(groupId).requireV2GroupProperties().getGroupRevision();
+        Log.w(TAG, String.format(Locale.US, "Error. %s, local revision: %d", getGroupIdString(), localRevision), ex);
         throw new GroupChangeFailedException(ex);
       }
+    }
+
+    private @NonNull String getGroupIdString() {
+      return "GroupId:" + Hex.toStringCondensed(groupSecretParams.getPublicParams().getGroupIdentifier().serialize());
     }
 
     private GroupManager.GroupActionResult commitChange(@NonNull GroupChange.Actions.Builder change)
